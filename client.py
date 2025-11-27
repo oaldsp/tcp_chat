@@ -81,7 +81,7 @@ def download_file(sock, fobj, line):
         name = headers.get('NAME', 'unknown')
         size = int(headers.get('SIZE', '0'))
         sha = headers.get('SHA256', None)
-        save_path = filepath = os.path.join(FILES_DIR, name)
+        save_path = os.path.join(FILES_DIR, name)
         # se já existir, acrescentar sufixo
         if os.path.exists(save_path):
             base, ext = os.path.splitext(save_path)
