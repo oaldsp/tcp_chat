@@ -1,19 +1,18 @@
-#!/usr/bin/env python3
-"""
-Servidor TCP multithread com transferência de arquivos (SHA256) e chat.
-Uso: python3 server.py [PORT]
-PORT default: 5001
-"""
-
 import socket
 import threading
 import hashlib
 import os
 import sys
 
+#==============================================
+#   Para rodar -> python server.py [PORT]
+#   PORT default: 5001
+#==============================================
+
 HOST = '0.0.0.0'
-PORT = int(sys.argv[1]) if len(sys.argv) >= 2 else 5001
-FILES_DIR = '.'  # diretório onde o servidor procura arquivos
+PORT_INPUT = int(sys.argv[1])
+PORT = PORT_INPUT if len(sys.argv) == 2 and PORT_INPUT > 1024 else 5001
+FILES_DIR = 'server_files/'  # diretório onde o servidor procura arquivos
 
 clients_lock = threading.Lock()
 clients = {}  # client_id -> (conn, fileobj, address)
@@ -25,7 +24,7 @@ def compute_sha256_file(path):
     h = hashlib.sha256()
     with open(path, 'rb') as f:
         while True:
-            chunk = f.read(1024 * 1024)
+            chunk = f.read(1024 * 1024)# 1 Megabyte (1024 * 1024 bytes)
             if not chunk:
                 break
             h.update(chunk)
@@ -35,13 +34,12 @@ def send_chat_to_all(sender_id, message):
     with clients_lock:
         for cid, (conn, fobj, addr) in list(clients.items()):
             try:
-                # prefix message with sender id or SERVER
                 if sender_id is None:
                     line = f"CHAT_FROM SERVER {message}\n"
                 else:
-                    line = f"CHAT_FROM {sender_id} {message}\n"
-                fobj.write(line.encode('utf-8'))
-                fobj.flush()
+                    line = f"CHAT_FROM CLIENT {sender_id} {message}\n"
+                fobj.write(line.encode('utf-8'))#Transforma texto em Bytes.
+                fobj.flush()#Enviar mensagem.
             except Exception as e:
                 print(f"Erro ao enviar chat para cliente {cid}: {e}")
 
@@ -81,9 +79,9 @@ def handle_client(client_id):
                 fobj.write(header.encode('utf-8'))
                 fobj.flush()
                 # enviar conteúdo do arquivo em blocos
-                with open(filepath, 'rb') as af:
+                with open(filepath, 'rb') as file:
                     while True:
-                        chunk = af.read(1024 * 1024)
+                        chunk = file.read(1024 * 1024)# 1 Megabyte (1024 * 1024 bytes)
                         if not chunk:
                             break
                         conn.sendall(chunk)  # enviar bytes puros
@@ -127,7 +125,7 @@ def accept_loop(server_sock):
 
 def server_console():
     # ler do stdin e enviar como chat para todos
-    print("Console do servidor: digite mensagens para enviar a todos (prefixo '/exit' para parar servidor).")
+    print("Console do servidor: digite mensagens para enviar a todos.\n(prefixo '/exit' para parar servidor).")
     while True:
         try:
             line = input()
@@ -136,7 +134,7 @@ def server_console():
         if not line:
             continue
         if line.strip().lower() == '/exit':
-            print("Encerrando servidor por comando /exit...")
+            print("==============================================================\nEncerrando servidor por comando /exit...\n==============================================================")
             # encerrar conexões
             with clients_lock:
                 for cid, (conn, fobj, addr) in list(clients.items()):
@@ -152,11 +150,11 @@ def server_console():
         send_chat_to_all(None, line)
 
 def main():
-    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)#AF_INET(IPv4) SOCK_STREAM(TCP)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_sock.bind((HOST, PORT))
-    server_sock.listen(10)
-    print(f"Servidor ouvindo em {HOST}:{PORT}")
+    server_sock.listen(10)#(int) tamanho da fila de cache
+    print(f"==============================================================\nServidor ouvindo em {HOST}:{PORT}\n==============================================================")
     accept_thread = threading.Thread(target=accept_loop, args=(server_sock,), daemon=True)
     accept_thread.start()
     # console principal do servidor (envia chats)
