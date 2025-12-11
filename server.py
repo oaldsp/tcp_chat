@@ -35,11 +35,16 @@ def compute_sha256_file(path):
 
 #CHANGED ===== begin
 def get_content_type(filename):
+    type = "application/octet-stream"  
+
     if filename.endswith(".html"):
-        return "text/html"
-    if filename.endswith(".jpg") or filename.endswith(".jpeg"):
-        return "image/jpeg"
-    return "application/octet-stream"
+        type = "text/html"
+    elif filename.endswith(".jpg") or filename.endswith(".jpeg"):
+        type = "image/jpeg"
+    elif filename.endswith(".png"):
+        type = "image/png"
+    
+    return type
 
 def send_file(conn, filepath):
     size = os.path.getsize(filepath)
@@ -49,7 +54,9 @@ def send_file(conn, filepath):
         "HTTP/1.1 200 OK\r\n"
         f"Content-Type: {content_type}\r\n"
         f"Content-Length: {size}\r\n"
-        "Connection: close\r\n\r\n"
+        "Connection: keep-alive\r\n"
+        "Keep-Alive: timeout=5, max=100\r\n"
+        "\r\n"
     )
     
     conn.sendall(header.encode())
@@ -64,20 +71,12 @@ def send_404(conn):
         "HTTP/1.1 404 Not Found\r\n"
         "Content-Type: text/html\r\n"
         f"Content-Length: {len(body)}\r\n"
-        "Connection: close\r\n\r\n"
+        "Connection: keep-alive\r\n"
+        "Keep-Alive: timeout=5, max=100\r\n"
+        "\r\n"
     )
     conn.sendall(header.encode() + body)
 
-def send_400(conn):
-    #A requisição enviada pelo cliente está ERRADA.
-    body = b"<h1>400 Bad Request</h1>"
-    header = (
-        "HTTP/1.1 400 Bad Request\r\n"
-        "Content-Type: text/html\r\n"
-        f"Content-Length: {len(body)}\r\n"
-        "Connection: close\r\n\r\n"
-    )
-    conn.sendall(header.encode() + body)
 #CHANGED ===== end
 
 #CHANGED ===== begin
@@ -103,26 +102,47 @@ def handle_client(client_id):
     #CHANGED ===== begin
             request = fobj.readline().decode().strip()
             if not request:
-                break#Conexão fechada pelo cliente
+                #Navegador fechou a aba
+                #Conexão fechada pelo cliente
+                print(f"[{client_id}] Conexão encerrada pelo navegador.")
+                break
             
             print(f"[{client_id}] HTTP Request: {request}")
 
-            method, path, version = request.split(" ")
+            request_parts = request.split(" ")
+            method = request_parts[0]
+            path = request_parts[1]
+
+            #Ler cabeçalhos HTTP
+            print("--------------------------------------------------------------\nCabeçalhos HTTP\n--------------------------------------------------------------")
+            headers = {}
+            while True:
+                line = fobj.readline().decode().strip()
+                if line == "":
+                    break  # fim dos cabeçalhos
+                print(f"[{client_id}] HTTP Request: {line}")
+                key, value = line.split(":", 1)
+                headers[key.strip().lower()] = value.strip()
+            print("--------------------------------------------------------------")
+                   
+            # Verifica se o cliente quer fechar a conexão
+            if headers.get("connection", "").lower() == "close":
+                print(f"[{client_id}] Cliente pediu Connection: close")
+                break
 
             if method != "GET":
-                send_400(conn)
-                return#TODO
+                continue
             
             if path == "/":
                 path = "/index.html"
                 
             filepath = os.path.join(FILES_DIR, path.lstrip("/"))
 
-            if not os.path.isfile(filepath):
-                send_404(conn)
-                continue#TODO
-            else: 
+            if os.path.isfile(filepath):
                 send_file(conn, filepath)
+            else: 
+                send_404(conn)
+                continue
     #CHANGED ===== end
     
     #CHANGED ===== begin
@@ -202,35 +222,38 @@ def accept_loop(server_sock):
         t = threading.Thread(target=handle_client, args=(cid,), daemon=True)
         t.start()
     
-#CHANGED ===== begin
-#def server_console():
-#    # ler do stdin e enviar como chat para todos
-#    print("Console do servidor: digite mensagens para enviar a todos.\n(prefixo '/exit' para parar servidor).")
-#    while True:
-#        try:
-#            line = input()
-#        except EOFError:
-#            break
-#        if not line:
-#            continue
-#        if line.strip().lower() == '/exit':
-#            print("==============================================================\nEncerrando servidor por comando /exit...\n==============================================================")
-#            # encerrar conexões
-#            with clients_lock:
-#                for cid, (conn, fobj, addr) in list(clients.items()):
-#                    try:
-#                        fobj.write(b"CHAT_FROM SERVER Servidor encerrando\n")
-#                        fobj.flush()
-#                        conn.close()
-#                    except:
-#                        pass
-#                clients.clear()
-#            os._exit(0)
-#        # enviar como chat para todos
-#        #CHANGED ===== begin
-#        #send_chat_to_all(None, line)
-#        #CHANGED ===== end
-#CHANGED ===== end
+def server_console():
+    # ler do stdin e enviar como chat para todos
+    #CHANGED ===== begin
+    #print("Console do servidor: digite mensagens para enviar a todos.\n(prefixo '/exit' para parar servidor).")
+    print("Log do servidor(Digite '/exit' para parar o servidor):")
+    #CHANGED ===== end
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        if not line:
+            continue
+        if line.strip().lower() == '/exit':
+            print("==============================================================\nEncerrando servidor por comando /exit...\n==============================================================")
+            # encerrar conexões
+            with clients_lock:
+                for cid, (conn, fobj, addr) in list(clients.items()):
+                    try:
+                        #CHANGED ===== begin
+                        #fobj.write(b"CHAT_FROM SERVER Servidor encerrando\n")
+                        #fobj.flush()
+                        #CHANGED ===== end
+                        conn.close()
+                    except:
+                        pass
+                clients.clear()
+            os._exit(0)
+        # enviar como chat para todos
+        #CHANGED ===== begin
+        #send_chat_to_all(None, line)
+        #CHANGED ===== end
 
 def main():
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)#AF_INET(IPv4) SOCK_STREAM(TCP)
@@ -238,17 +261,10 @@ def main():
     server_sock.bind((HOST, PORT))
     server_sock.listen(10)#(int) tamanho da fila de cache
     print(f"==============================================================\nServidor ouvindo em {HOST}:{PORT}\n==============================================================")
-    
-    #CHANGED ===== begin
-    accept_loop(server_sock)
-    #CHANGED ===== end
-
-    #CHANGED ===== begin
-    #accept_thread = threading.Thread(target=accept_loop, args=(server_sock,), daemon=True)
-    #accept_thread.start()
+    accept_thread = threading.Thread(target=accept_loop, args=(server_sock,), daemon=True)
+    accept_thread.start()
     ## console principal do servidor (envia chats)
-    #server_console()
-    #CHANGED ===== end
+    server_console()
 
 if __name__ == '__main__':
     main()
